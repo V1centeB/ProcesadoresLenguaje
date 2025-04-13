@@ -19,6 +19,39 @@ char *char_to_string (char) ;
 
 char temp [2048] ;
 
+typedef struct {
+    char nombre[256];  
+} str_variable_local;
+
+str_variable_local lista_var_locales[256];
+int cont_var_locales = 0;  
+
+// Variable global para almacenar el nombre de la función actual
+char funcion_actual[256] = {'\0'};
+
+void agregar_variable_local(char *nombre_var) {
+    if (cont_var_locales < 256) {
+        strcpy(lista_var_locales[cont_var_locales].nombre, nombre_var);
+        cont_var_locales++;
+    }
+}
+
+int es_variable_local(char *nombre_var) {
+    for (int i = 0; i < cont_var_locales; i++) {
+        if (strcmp(lista_var_locales[i].nombre, nombre_var) == 0) {
+            return 1;  // La variable es local
+        }
+    }
+    return 0; 
+}
+
+
+void reiniciar_var_locales(char *nombre_funcion) {
+    strcpy(funcion_actual, nombre_funcion); 
+    cont_var_locales = 0;  
+}
+
+
 // Abstract Syntax Tree (AST) Node Structure
 
 typedef struct ASTnode t_node ;
@@ -80,8 +113,9 @@ typedef struct s_attr {
 axioma:                   decl_vars func_main                                               { printf ("%s\n %s\n", $1.code, $2.code); }
                         ;
 
-func_main:                MAIN '(' ')' '{' codigo '}'                                       { sprintf(temp, "(defun %s ()\n%s)", $1.code, $5.code);
-                                                                                                $$.code = gen_code(temp); }
+func_main:                MAIN '(' ')' '{' codigo '}'                                       { reiniciar_var_locales("main");  
+                                                                                            sprintf(temp, "(defun main ()\n%s)", $5.code);
+                                                                                            $$.code = gen_code(temp);}
                         ; 
                         
 
@@ -91,7 +125,6 @@ decl_vars:                declaracion decl_vars                                 
                         ;                          
 
 
-
 codigo:                   sentencia ';' codigo                                              { sprintf(temp, "%s\n %s", $1.code, $3.code);
                                                                                             $$.code = gen_code(temp);}
                         | sentencia codigo                                                  {sprintf(temp, "%s\n%s", $1.code, $2.code);
@@ -99,18 +132,22 @@ codigo:                   sentencia ';' codigo                                  
                         | /* lambda */                                                      { $$.code = "";}
                         ;
 
-sentencia:                IDENTIF '=' resto_variable                                        { sprintf (temp, "(setq %s %s)", $1.code, $3.code) ;
-                                                                                            $$.code = gen_code (temp) ; }
-                        | PUTS '(' STRING ')' ';'                                           { sprintf (temp, "(print \"%s\")", $3.code) ;
-                                                                                            $$.code = gen_code (temp) ; }
-                        | PRINTF '(' STRING resto_sentencia ')'                             { sprintf (temp, "(princ %s)", $4.code) ;
-                                                                                            $$.code = gen_code (temp) ; }
-                        | WHILE '(' expresion ')' '{' codigo '}'                            { sprintf(temp, "(loop while %s do \n%s)", $3.code, $6.code);
-                                                                                            $$.code = gen_code (temp) ; }
-                        | IF '(' expresion ')' '{' codigo '}' condicional                   { sprintf (temp,"(if %s\n progn %s %s)", $3.code, $6.code, $8.code) ;
-                                                                                            $$.code = gen_code (temp) ; }
-                        | FOR '('  ';' expresion ';' ') ' '{' codigo '}'                            { sprintf (temp, "(loop for %s do \n%s)", $3.code, $6.code) ;
-                                                                                            $$.code = gen_code (temp) ; }
+sentencia:                IDENTIF '=' resto_variable                                                                    { if (es_variable_local($1.code)) { sprintf(temp, "(setf %s_%s %s)", funcion_actual, $1.code, $3.code); } 
+                                                                                                                          else { sprintf(temp, "(setq %s %s)", $1.code, $3.code); }
+                                                                                                                        $$.code = gen_code(temp); }
+                        | INTEGER IDENTIF '=' resto_variable                                                            { if (es_variable_local($2.code)) { sprintf(temp, "(setf %s_%s %s)", funcion_actual, $2.code, $3.code); } 
+                                                                                                                          else { sprintf(temp, "(setq %s %s)", $2.code, $3.code); }
+                                                                                                                        $$.code = gen_code(temp); }                                                                                                
+                        | PUTS '(' STRING ')' ';'                                                                       { sprintf (temp, "(print \"%s\")", $3.code) ;
+                                                                                                                        $$.code = gen_code (temp) ; }
+                        | PRINTF '(' STRING resto_sentencia ')'                                                         { sprintf (temp, "(princ %s)", $4.code) ;
+                                                                                                                        $$.code = gen_code (temp) ; }
+                        | WHILE '(' expresion ')' '{' codigo '}'                                                        { sprintf(temp, "(loop while %s do \n%s)", $3.code, $6.code);
+                                                                                                                        $$.code = gen_code (temp) ; }
+                        | IF '(' expresion ')' '{' codigo '}' condicional                                               { sprintf (temp,"(if %s\n progn %s %s)", $3.code, $6.code, $8.code) ;
+                                                                                                                        $$.code = gen_code (temp) ; }
+                        | FOR '(' IDENTIF '=' termino ';' expresion ';' IDENTIF '=' expresion ')' '{' codigo '}'      { sprintf (temp, "(loop while %s do \n%s)", $7.code, $14.code) ;
+                                                                                                                        $$.code = gen_code (temp) ; }
                         ;
 
 condicional:             ELSE '{' codigo '}'                                                { sprintf (temp, "(progn %s)", $3.code) ;
@@ -128,8 +165,9 @@ resto_variable:           IDENTIF '=' resto_variable                            
                         |   expresion                                                       {$$.code = $1.code;}
                         ;
 
-declaracion:              INTEGER IDENTIF asignacion_entero resto_declaracion ';'           { sprintf (temp, "(setq %s %s) %s", $2.code, $3.code, $4.code) ;
-                                                                                            $$.code = gen_code (temp) ; }
+declaracion:              INTEGER IDENTIF asignacion_entero resto_declaracion ';'           { agregar_variable_local($2.code); }
+                                                                                            { sprintf(temp, "(setq %s_%s %s) %s", funcion_actual, $2.code, $3.code, $4.code) ;
+                                                                                              $$.code = gen_code (temp) ; }
                         ;
 
 asignacion_entero:        '=' NUMBER                                                        { sprintf(temp, "%d", $2.value);
