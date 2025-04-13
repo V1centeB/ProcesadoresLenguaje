@@ -9,6 +9,8 @@
 #include <stdlib.h>           // declaraciones para exit ()
 
 #define FF fflush(stdout);    // para forzar la impresion inmediata
+#define MAX_VAR_LOCALES 64
+
 
 int yylex () ;
 int yyerror () ;
@@ -19,36 +21,37 @@ char *char_to_string (char) ;
 
 char temp [2048] ;
 
-typedef struct {
-    char nombre[256];  
-} str_variable_local;
 
-str_variable_local lista_var_locales[256];
-int cont_var_locales = 0;  
+// Tabla local para variables dentro de una función
+char *tabla_locales[MAX_VAR_LOCALES];
+int n_locales = 0;
 
-// Variable global para almacenar el nombre de la función actual
-char funcion_actual[256] = {'\0'};
+// Nombre de la función actual
+char nombre_funcion_actual[256] = ""; // De momento, solo main
 
-void agregar_variable_local(char *nombre_var) {
-    if (cont_var_locales < 256) {
-        strcpy(lista_var_locales[cont_var_locales].nombre, nombre_var);
-        cont_var_locales++;
+// Función para insertar variable local
+void insertar_variable_local(char *nombre) {
+    if (n_locales < MAX_VAR_LOCALES) {
+        tabla_locales[n_locales++] = nombre;
     }
 }
 
-int es_variable_local(char *nombre_var) {
-    for (int i = 0; i < cont_var_locales; i++) {
-        if (strcmp(lista_var_locales[i].nombre, nombre_var) == 0) {
-            return 1;  // La variable es local
-        }
+// Función para comprobar si una variable es local
+int es_variable_local(char *nombre) {
+    for (int i = 0; i < n_locales; i++) {
+        if (strcmp(tabla_locales[i], nombre) == 0)
+            return 1;
     }
-    return 0; 
+    return 0;
 }
 
-
-void reiniciar_var_locales(char *nombre_funcion) {
-    strcpy(funcion_actual, nombre_funcion); 
-    cont_var_locales = 0;  
+// Renombrado si es local
+char *renombrar_variable(char *nombre) {
+    if (strcmp(nombre_funcion_actual, "global") != 0 && es_variable_local(nombre)) {
+        sprintf(temp, "%s_%s", nombre_funcion_actual, nombre);
+        return gen_code(temp);
+    }
+    return nombre;
 }
 
 
@@ -113,11 +116,10 @@ typedef struct s_attr {
 axioma:                   decl_vars func_main                                               { printf ("%s\n %s\n", $1.code, $2.code); }
                         ;
 
-func_main:                MAIN '(' ')' '{' codigo '}'                                       { reiniciar_var_locales("main");  
-                                                                                            sprintf(temp, "(defun main ()\n%s)", $5.code);
+func_main:              MAIN '(' ')'                                                        {n_locales = 0; strcpy(nombre_funcion_actual, "main");}
+                        '{' codigo '}'                                                      {sprintf(temp, "(defun main ()\n%s)", $6.code);
                                                                                             $$.code = gen_code(temp);}
-                        ; 
-                        
+                        ;
 
 decl_vars:                declaracion decl_vars                                             { sprintf(temp, "%s\n%s", $1.code, $2.code);
                                                                                             $$.code = gen_code(temp);}
@@ -132,12 +134,13 @@ codigo:                   sentencia ';' codigo                                  
                         | /* lambda */                                                      { $$.code = "";}
                         ;
 
-sentencia:                IDENTIF '=' resto_variable                                                                    { if (es_variable_local($1.code)) { sprintf(temp, "(setf %s_%s %s)", funcion_actual, $1.code, $3.code); } 
-                                                                                                                          else { sprintf(temp, "(setq %s %s)", $1.code, $3.code); }
-                                                                                                                        $$.code = gen_code(temp); }
-                        | INTEGER IDENTIF '=' resto_variable                                                            { if (es_variable_local($2.code)) { sprintf(temp, "(setf %s_%s %s)", funcion_actual, $2.code, $3.code); } 
-                                                                                                                          else { sprintf(temp, "(setq %s %s)", $2.code, $3.code); }
-                                                                                                                        $$.code = gen_code(temp); }                                                                                                
+sentencia:                IDENTIF '=' resto_variable                                                                    {char *nombre = renombrar_variable($1.code);
+                                                                                                                        sprintf(temp, "(setf %s %s)", nombre, $3.code);
+                                                                                                                        $$.code = gen_code(temp);}
+                        | INTEGER IDENTIF asignacion_entero ';'                                                         {insertar_variable_local($2.code);
+                                                                                                                        sprintf(temp, "(setq %s_%s %s)", nombre_funcion_actual, $2.code, $3.code);
+                                                                                                                        $$.code = gen_code(temp);
+                                                                                                                        }
                         | PUTS '(' STRING ')' ';'                                                                       { sprintf (temp, "(print \"%s\")", $3.code) ;
                                                                                                                         $$.code = gen_code (temp) ; }
                         | PRINTF '(' STRING resto_sentencia ')'                                                         { sprintf (temp, "(princ %s)", $4.code) ;
@@ -146,7 +149,7 @@ sentencia:                IDENTIF '=' resto_variable                            
                                                                                                                         $$.code = gen_code (temp) ; }
                         | IF '(' expresion ')' '{' codigo '}' condicional                                               { sprintf (temp,"(if %s\n progn %s %s)", $3.code, $6.code, $8.code) ;
                                                                                                                         $$.code = gen_code (temp) ; }
-                        | FOR '(' IDENTIF '=' termino ';' expresion ';' IDENTIF '=' expresion ')' '{' codigo '}'      { sprintf (temp, "(loop while %s do \n%s)", $7.code, $14.code) ;
+                        | FOR '(' IDENTIF '=' termino ';' expresion ';' IDENTIF '=' expresion ')' '{' codigo '}'        { sprintf (temp, "(loop while %s do \n%s)", $7.code, $14.code) ;
                                                                                                                         $$.code = gen_code (temp) ; }
                         ;
 
@@ -161,12 +164,13 @@ resto_sentencia:          ',' STRING resto_sentencia                            
                         | /* lambda */                                                      { $$.code = "";}
                         ;
 
-resto_variable:           IDENTIF '=' resto_variable                                        {sprintf(temp, "(setq %s %s)", $1.code, $3.code) ; $$.code = gen_code(temp);}
+resto_variable:           IDENTIF '=' resto_variable                                        {sprintf(temp, "(setq %s %s)", renombrar_variable($1.code), $3.code);
+                                                                                            $$.code = gen_code(temp);}
                         |   expresion                                                       {$$.code = $1.code;}
                         ;
 
-declaracion:              INTEGER IDENTIF asignacion_entero resto_declaracion ';'           { agregar_variable_local($2.code); }
-                                                                                            { sprintf(temp, "(setq %s_%s %s) %s", funcion_actual, $2.code, $3.code, $4.code) ;
+declaracion:              INTEGER IDENTIF asignacion_entero resto_declaracion ';'           { insertar_variable_local($2.code); }
+                                                                                            { sprintf(temp, "(setq %s %s %s) %s", nombre_funcion_actual, $2.code, $3.code, $4.code) ;
                                                                                               $$.code = gen_code (temp) ; }
                         ;
 
@@ -216,8 +220,9 @@ termino:                  operando                                              
                                                                                             $$.code = gen_code (temp) ; }
                         ;
 
-operando:                 IDENTIF                                                           { sprintf (temp, "%s", $1.code) ;
-                                                                                            $$.code = gen_code (temp) ; }
+operando:                 IDENTIF                                                           {char *nuevo = renombrar_variable($1.code);
+                                                                                             sprintf(temp, "%s", nuevo);
+                                                                                             $$.code = gen_code(temp);}
                         | NUMBER                                                            { sprintf (temp, "%d", $1.value) ;
                                                                                             $$.code = gen_code (temp) ; }
                         | '(' expresion ')'                                                 { $$ = $2 ; }
