@@ -27,7 +27,7 @@ char *tabla_locales[MAX_VAR_LOCALES];
 int n_locales = 0;
 
 // Nombre de la función actual
-char nombre_funcion_actual[256] = ""; // De momento, solo main
+char nombre_funcion_actual[256] = "";
 
 // Función para insertar variable local
 void insertar_variable_local(char *nombre) {
@@ -47,11 +47,8 @@ int es_variable_local(char *nombre) {
 
 // Renombrado si es local
 char *renombrar_variable(char *nombre) {
-    if (strcmp(nombre_funcion_actual, "global") != 0 && es_variable_local(nombre)) {
-        sprintf(temp, "%s_%s", nombre_funcion_actual, nombre);
-        return gen_code(temp);
-    }
-    return nombre;
+    sprintf(temp, "%s_%s", nombre_funcion_actual, nombre);
+    return gen_code(temp);
 }
 
 
@@ -148,6 +145,8 @@ sentencia:                IDENTIF '=' resto_variable                            
                         | WHILE '(' expresion ')' '{' codigo '}'                                                        { sprintf(temp, "(loop while %s do \n%s)", $3.code, $6.code);
                                                                                                                         $$.code = gen_code (temp) ; }
                         | IF '(' expresion ')' '{' codigo '}' condicional                                               { sprintf (temp,"(if %s\n progn %s %s)", $3.code, $6.code, $8.code) ;
+                                                                                                                        $$.code = gen_code (temp) ; }
+                        | IF '(' expresion ')' '{' codigo '}'                                                           { sprintf (temp,"(if %s\n progn %s)", $3.code, $6.code) ;
                                                                                                                         $$.code = gen_code (temp) ; }
                         | FOR '(' IDENTIF '=' termino ';' expresion ';' IDENTIF '=' expresion ')' '{' codigo '}'        { sprintf (temp, "(loop while %s do \n%s)", $7.code, $14.code) ;
                                                                                                                         $$.code = gen_code (temp) ; }
