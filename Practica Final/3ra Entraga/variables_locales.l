@@ -1,8 +1,7 @@
-(setq _a 0) 
+(setq  a 0) 
 
  (defun main ()
-(setf _a (null))
- (setf _a (+ a 1))
- (princ (+ a 1) )
+(setq main_a 4)
+(setf main_a (+ main_a 1))
+ (princ (+ main_a 1) )
  )
-
