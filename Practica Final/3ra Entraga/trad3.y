@@ -98,15 +98,19 @@ typedef struct s_attr {
 
 
 
-%right '='                    // es la ultima operacion que se debe realizar
+%right '='                    // última operación a realizar
+
+// PRECEDENCIA PARA EXPRESIONES LÓGICAS
 %left OR
 %left AND
 %left IGUAL DIFERENTE
 %left '>' MAYORIGUAL
 %left '<' MENORIGUAL
-%left '+' '-'                 // menor orden de precedencia
-%left '*' '/' '%'                 // orden de precedencia intermedio
-%left UNARY_SIGN              // mayor orden de precedencia
+
+// PRECEDENCIA PARA EXPRESIONES ARITMÉTICAS
+%left '+' '-'
+%left '*' '/' '%'
+%left UNARY_SIGN
 
 %%                            // Seccion 3 Gramatica - Semantico
 
@@ -142,13 +146,13 @@ sentencia:                IDENTIF '=' resto_variable                            
                                                                                                                         $$.code = gen_code (temp) ; }
                         | PRINTF '(' STRING resto_sentencia ')'                                                         { sprintf (temp, "(princ %s)", $4.code) ;
                                                                                                                         $$.code = gen_code (temp) ; }
-                        | WHILE '(' expresion ')' '{' codigo '}'                                                        { sprintf(temp, "(loop while %s do \n%s)", $3.code, $6.code);
+                        | WHILE '(' log_expr ')' '{' codigo '}'                                                        { sprintf(temp, "(loop while %s do \n%s)", $3.code, $6.code);
                                                                                                                         $$.code = gen_code (temp) ; }
-                        | IF '(' expresion ')' '{' codigo '}' condicional                                               { sprintf (temp,"(if %s\n progn %s %s)", $3.code, $6.code, $8.code) ;
+                        | IF '(' log_expr ')' '{' codigo '}' condicional                                               { sprintf (temp,"(if %s\n progn %s %s)", $3.code, $6.code, $8.code) ;
                                                                                                                         $$.code = gen_code (temp) ; }
-                        | IF '(' expresion ')' '{' codigo '}'                                                           { sprintf (temp,"(if %s\n progn %s)", $3.code, $6.code) ;
+                        | IF '(' log_expr ')' '{' codigo '}'                                                           { sprintf (temp,"(if %s\n progn %s)", $3.code, $6.code) ;
                                                                                                                         $$.code = gen_code (temp) ; }
-                        | FOR '(' IDENTIF '=' termino ';' expresion ';' IDENTIF '=' expresion ')' '{' codigo '}'        { sprintf (temp, "(loop while %s do \n%s)", $7.code, $14.code) ;
+                        | FOR '(' IDENTIF '=' arit_expr ';' log_expr ';' IDENTIF '=' arit_expr ')' '{' codigo '}'        { sprintf (temp, "(loop while %s do \n%s)", $7.code, $14.code) ;
                                                                                                                         $$.code = gen_code (temp) ; }
                         ;
 
@@ -156,16 +160,20 @@ condicional:             ELSE '{' codigo '}'                                    
                                                                                             $$.code = gen_code (temp) ; }
                         ;
 
-resto_sentencia:          ',' STRING resto_sentencia                                        { sprintf (temp, "%s %s", $2.code, $3.code) ;
-                                                                                            $$.code = gen_code (temp) ; }
-                        | ',' expresion resto_sentencia                                     { sprintf (temp, "%s %s", $2.code, $3.code) ;
-                                                                                            $$.code = gen_code (temp) ; }
-                        | /* lambda */                                                      { $$.code = "";}
+resto_sentencia:          ',' arit_expr resto_sentencia                                                                 { sprintf(temp, "(setq %s %s)", $2.code, $3.code);
+                                                                                                                        $$.code = gen_code(temp);}
+                        | ',' log_expr resto_sentencia                                                                  { sprintf(temp, "(setq %s %s)", $2.code, $3.code);
+                                                                                                                        $$.code = gen_code(temp);}
+                        | ',' STRING resto_sentencia                                                                    { sprintf(temp, "(setq %s %s)", $2.code, $3.code);
+                                                                                                                        $$.code = gen_code(temp);}
+                        | /* lambda */                                                                                  { $$.code = ""; }
                         ;
 
-resto_variable:           IDENTIF '=' resto_variable                                        {sprintf(temp, "(setq %s %s)", renombrar_variable($1.code), $3.code);
-                                                                                            $$.code = gen_code(temp);}
-                        |   expresion                                                       {$$.code = $1.code;}
+resto_variable:           IDENTIF '=' resto_variable                                                                    {char *nombre = renombrar_variable($1.code);
+                                                                                                                        sprintf(temp, "(setf %s %s)", nombre, $3.code);
+                                                                                                                        $$.code = gen_code(temp);}
+                        | arit_expr                                                                                     {$$.code = $1.code;}
+                        | log_expr                                                                                     {$$.code = $1.code;}
                         ;
 
 declaracion:              INTEGER IDENTIF asignacion_entero resto_declaracion ';'           { insertar_variable_local($2.code); }
@@ -184,47 +192,42 @@ resto_declaracion:      ',' IDENTIF asignacion_entero resto_declaracion         
                         | /* lambda */                                                      { $$.code = "";}
                         ;                              
 
-expresion:                termino                                                           { $$ = $1 ; }
-                        | expresion '+' expresion                                           { sprintf (temp, "(+ %s %s)", $1.code, $3.code) ;
-                                                                                            $$.code = gen_code (temp) ; }
-                        | expresion '-' expresion                                           { sprintf (temp, "(- %s %s)", $1.code, $3.code) ;
-                                                                                            $$.code = gen_code (temp) ; }
-                        | expresion '*' expresion                                           { sprintf (temp, "(* %s %s)", $1.code, $3.code) ;
-                                                                                            $$.code = gen_code (temp) ; }
-                        | expresion '/' expresion                                           { sprintf (temp, "(/ %s %s)", $1.code, $3.code) ;
-                                                                                            $$.code = gen_code (temp) ; }
-                        | expresion AND expresion                                           { sprintf (temp, "(and %s %s)", $1.code, $3.code) ;
-                                                                                            $$.code = gen_code (temp) ; }
-                        | expresion OR expresion                                            { sprintf (temp, "(or %s %s)", $1.code, $3.code) ;
-                                                                                            $$.code = gen_code (temp) ; }
-                        | expresion DIFERENTE expresion                                     { sprintf (temp, "(/= %s %s)", $1.code, $3.code) ;
-                                                                                            $$.code = gen_code (temp) ; }
-                        | expresion IGUAL expresion                                         { sprintf (temp, "(= %s %s)", $1.code, $3.code) ;
-                                                                                            $$.code = gen_code (temp) ; }
-                        | expresion '<' expresion                                           { sprintf (temp, "(< %s %s)", $1.code, $3.code) ;
-                                                                                            $$.code = gen_code (temp) ; }
-                        | expresion MENORIGUAL expresion                                    { sprintf (temp, "(<= %s %s)", $1.code, $3.code) ;
-                                                                                            $$.code = gen_code (temp) ; }
-                        | expresion '>' expresion                                           { sprintf (temp, "(> %s %s)", $1.code, $3.code) ;
-                                                                                            $$.code = gen_code (temp) ; }
-                        | expresion MAYORIGUAL expresion                                    { sprintf (temp, "(>= %s %s)", $1.code, $3.code) ;
-                                                                                            $$.code = gen_code (temp) ; }
-                        | expresion '%' expresion                                           { sprintf (temp, "(mod %s %s)", $1.code, $3.code) ;
-                                                                                            $$.code = gen_code (temp) ; }
+
+
+arit_expr:                arit_expr '+' arit_expr                                           { sprintf(temp, "(+ %s %s)", $1.code, $3.code); $$.code = gen_code(temp); }
+                        | arit_expr '-' arit_expr                                           { sprintf(temp, "(- %s %s)", $1.code, $3.code); $$.code = gen_code(temp); }
+                        | arit_expr '*' arit_expr                                           { sprintf(temp, "(* %s %s)", $1.code, $3.code); $$.code = gen_code(temp); }
+                        | arit_expr '/' arit_expr                                           { sprintf(temp, "(/ %s %s)", $1.code, $3.code); $$.code = gen_code(temp); }
+                        | arit_expr '%' arit_expr                                           { sprintf(temp, "(mod %s %s)", $1.code, $3.code); $$.code = gen_code(temp); }
+                        | '-' arit_expr %prec UNARY_SIGN                                    { sprintf(temp, "(- %s)", $2.code); $$.code = gen_code(temp); }
+                        | '+' arit_expr %prec UNARY_SIGN                                    { $$ = $2; }
+                        | arit_atom                                                         { $$ = $1; }
                         ;
 
-termino:                  operando                                                          { $$ = $1 ; }
-                        | '+' operando %prec UNARY_SIGN                                     { $$ = $1 ; }
-                        | '-' operando %prec UNARY_SIGN                                     { sprintf (temp, "(- %s)", $2.code) ;
-                                                                                            $$.code = gen_code (temp) ; }
+arit_atom:                IDENTIF                                                           {char *nuevo = renombrar_variable($1.code);
+                                                                                            sprintf(temp, "%s", nuevo);
+                                                                                            $$.code = gen_code(temp);}
+                        | NUMBER                                                            { sprintf(temp, "%d", $1.value); $$.code = gen_code(temp); }
+                        | '(' arit_expr ')'                                                 { $$ = $2; }
                         ;
 
-operando:                 IDENTIF                                                           {char *nuevo = renombrar_variable($1.code);
+log_expr:                 log_expr AND log_expr                                              { sprintf(temp, "(and %s %s)", $1.code, $3.code); $$.code = gen_code(temp); }
+                        | log_expr OR log_expr                                               { sprintf(temp, "(or %s %s)", $1.code, $3.code); $$.code = gen_code(temp); }
+                        | log_expr DIFERENTE log_expr                                        { sprintf(temp, "(!= %s %s)", $1.code, $3.code); $$.code = gen_code(temp); }
+                        | log_expr IGUAL log_expr                                            { sprintf(temp, "(= %s %s)", $1.code, $3.code); $$.code = gen_code(temp); }
+                        | log_expr '<' log_expr                                              { sprintf(temp, "(< %s %s)", $1.code, $3.code); $$.code = gen_code(temp); }
+                        | log_expr '>' log_expr                                              { sprintf(temp, "(> %s %s)", $1.code, $3.code); $$.code = gen_code(temp); }
+                        | log_expr MENORIGUAL log_expr                                       { sprintf(temp, "(<= %s %s)", $1.code, $3.code); $$.code = gen_code(temp); }
+                        | log_expr MAYORIGUAL log_expr                                       { sprintf(temp, "(>= %s %s)", $1.code, $3.code); $$.code = gen_code(temp); }
+                        | log_atom                                                           { $$ = $1; }
+                        ;
+
+log_atom:                IDENTIF                                                             {
+                                                                                             char *nuevo = renombrar_variable($1.code);
                                                                                              sprintf(temp, "%s", nuevo);
                                                                                              $$.code = gen_code(temp);}
-                        | NUMBER                                                            { sprintf (temp, "%d", $1.value) ;
-                                                                                            $$.code = gen_code (temp) ; }
-                        | '(' expresion ')'                                                 { $$ = $2 ; }
+                        | NUMBER                                                             { sprintf(temp, "%d", $1.value); $$.code = gen_code(temp); }
+                        | '(' log_expr ')'                                                   { $$ = $2; }
                         ;
 
 
